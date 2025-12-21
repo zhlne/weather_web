@@ -73,35 +73,43 @@ def index():
 
     if county:
         try:
-            # 1. 抓取預報資料
             location_id = COUNTY_LOCATION_IDS[county]
             resp = requests.get(TOWN_FORECAST_URL, params={
                 "Authorization": API_KEY, "format": "JSON", "locationId": location_id
             })
             weather_json = resp.json()
-            location_info = weather_json['records']['Locations'][0]['Location'][0]
+            
+            # 安全地取得資料
+            records = weather_json.get('records', {})
+            locations = records.get('Locations', [{}])[0].get('Location', [])
+            
+            if not locations:
+                return f"❌ 找不到 {county} 的資料，請檢查 API Key 或網路。"
 
+            location_info = locations[0]
             elements = {}
-            for elem in location_info['WeatherElement']:
+            for elem in location_info.get('WeatherElement', []):
                 name = elem['ElementName']
                 if name in ("溫度", "3小時降雨機率", "相對濕度"):
                     times = []
                     for t in elem['Time'][:6]:
                         dt_raw = t.get('DataTime') or t.get('StartTime')
-                        val = list(t['ElementValue'][0].values())[0]
+                        # 使用 float 處理小數，並預防空值
+                        raw_val = list(t['ElementValue'][0].values())[0]
+                        val = float(raw_val) if raw_val and raw_val != "-" else 0.0
                         times.append({"time": dt_raw, "value": val})
                     elements[name] = times
 
-            # 2. 取得建議與預測
-            temps = [int(e["value"]) for e in elements.get("溫度", [])]
-            pops  = [int(e["value"]) for e in elements.get("3小時降雨機率", [])]
-            hums  = [int(e["value"]) for e in elements.get("相對濕度", [])]
+            # 轉換為數值列表供建議邏輯使用
+            temps = [e["value"] for e in elements.get("溫度", [])]
+            pops  = [e["value"] for e in elements.get("3小時降雨機率", [])]
+            hums  = [e["value"] for e in elements.get("相對濕度", [])]
             
             data = {
                 "locationName": location_info['LocationName'],
                 "elements": elements,
-                "suggestions": get_suggestions(temps, pops, hums), #
-                "ai_temp": get_ai_prediction(county) #
+                "suggestions": get_suggestions(temps, pops, hums),
+                "ai_temp": get_ai_prediction(county)
             }
         except Exception as e:
             return f"Error: {e}"
