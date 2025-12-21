@@ -2,45 +2,116 @@
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <title>AI 天氣建議系統</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 氣象智慧助手</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        :root { --glass-bg: rgba(255, 255, 255, 0.9); }
+        body { background: linear-gradient(135deg, #74abe2 0%, #5563b1 100%); min-height: 100vh; font-family: 'Microsoft JhengHei', sans-serif; }
+        .main-card { background: var(--glass-bg); border: none; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .ai-card { background: linear-gradient(45deg, #6a11cb 0%, #2575fc 100%); color: white; border: none; border-radius: 15px; }
+        .forecast-scroll { display: flex; overflow-x: auto; gap: 1rem; padding-bottom: 10px; }
+        .forecast-item { min-width: 120px; background: white; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #eee; }
+        .suggestion-item { border-left: 4px solid #2575fc; background: #f8f9fa; margin-bottom: 8px; }
+    </style>
 </head>
-<body class="bg-light">
-<div class="container mt-5">
-    <div class="card shadow p-4">
-        <h2 class="mb-4">🌦 鄉鎮天氣預報</h2>
-        <form method="GET">
-            <select name="county" class="form-select mb-3" required>
-                <option value="">-- 選擇縣市 --</option>
-                {% for name in counties %}
-                    <option value="{{ name }}" {% if name == selected_county %}selected{% endif %}>
-                        {{ name }}
-                    </option>
-                {% endfor %}
-            </select>
-            <button type="submit" class="btn btn-primary w-100">查詢</button>
-        </form>
+<body class="py-5">
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="card main-card p-4 p-md-5">
+                <header class="text-center mb-5">
+                    <h1 class="display-5 fw-bold text-primary"><i class="bi bi-cloud-sun-fill me-2"></i>AI 鄉鎮氣象助手</h1>
+                    <p class="text-muted">即時預報、穿搭建議與 AI 氣溫預測</p>
+                </header>
 
-        {% if weather %}
-            {% if weather.ai_temp %}
-                <div class="alert alert-info mt-4">
-                    <strong>🤖 AI 氣溫預測：</strong> 
-                    下一小時預估氣溫為 <span class="badge bg-primary fs-6">{{ weather.ai_temp }} °C</span>
+                <section class="mb-5">
+                    <form method="GET" class="row g-3 justify-content-center">
+                        <div class="col-md-6">
+                            <div class="input-group input-group-lg">
+                                <label class="input-group-text bg-white" for="county"><i class="bi bi-geo-alt"></i></label>
+                                <select name="county" id="county" class="form-select" required>
+                                    <option value="">-- 請選擇縣市 --</option>
+                                    {% for name in counties %}
+                                        <option value="{{ name }}" {% if name == selected_county %}selected{% endif %}>{{ name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-primary px-4">查詢</button>
+                            </div>
+                        </div>
+                    </form>
+                </section>
+
+                {% if weather %}
+                <div class="row g-4">
+                    <div class="col-md-5">
+                        {% if weather.ai_temp %}
+                        <div class="card ai-card p-4 mb-4 shadow-sm">
+                            <h5 class="card-title opacity-75"><i class="bi bi-robot me-2"></i>AI 智慧預估</h5>
+                            <div class="d-flex align-items-end my-3">
+                                <span class="display-3 fw-bold">{{ weather.ai_temp }}</span>
+                                <span class="h2 mb-2 ms-1">°C</span>
+                            </div>
+                            <p class="mb-0 small"><i class="bi bi-info-circle me-1"></i>預測下一小時 {{ weather.locationName }} 氣溫</p>
+                        </div>
+                        {% endif %}
+
+                        <div class="p-3 bg-white rounded shadow-sm border">
+                            <h5 class="fw-bold mb-3"><i class="bi bi-lightbulb text-warning me-2"></i>生活小提醒</h5>
+                            <div class="list-group list-group-flush">
+                                {% for tip in weather.suggestions %}
+                                    <div class="list-group-item suggestion-item rounded px-3 py-2 border-0">
+                                        {{ tip }}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-7">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="fw-bold mb-0"><i class="bi bi-clock-history me-2"></i>未來 6 小時預報</h5>
+                            <span class="badge bg-light text-dark border">{{ weather.locationName }}</span>
+                        </div>
+                        
+                        <div class="forecast-scroll pb-2">
+                            {% for e in weather.elements["溫度"] %}
+                                <div class="forecast-item shadow-sm">
+                                    <div class="small text-muted mb-2">{{ e.time.split(' ')[1] }}</div>
+                                    <div class="h4 fw-bold text-primary mb-2">{{ e.value }}°C</div>
+                                    {% set idx = loop.index0 %}
+                                    <div class="small">
+                                        <i class="bi bi-umbrella text-info"></i> {{ weather.elements["降雨機率"][idx].value }}%
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+
+                        <div class="mt-4 p-3 rounded bg-white border">
+                            <h6 class="fw-bold small text-uppercase text-muted mb-3">詳細數據</h6>
+                            <div class="row text-center">
+                                <div class="col-6 border-end">
+                                    <div class="h5 mb-0">{{ weather.elements["溫度"][0].value }}°C</div>
+                                    <div class="small text-muted">目前氣溫</div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="h5 mb-0">{{ weather.elements["相對濕度"][0].value }}%</div>
+                                    <div class="small text-muted">平均濕度</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            {% endif %}
-
-            <h5 class="mt-4">📌 外出提醒</h5>
-            <ul>{% for tip in weather.suggestions %}<li>{{ tip }}</li>{% endfor %}</ul>
-            
-            <h5 class="mt-4">未來 6 小時氣溫趨勢</h5>
-            <ul class="list-group">
-                {% for e in weather.elements["溫度"] %}
-                    <li class="list-group-item">{{ e.time }} － {{ e.value }}°C</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
+                {% endif %}
+            </div>
+            <footer class="text-center mt-4 text-white-50">
+                <small>© 2025 AI Weather Assistant | 資料來源：中央氣象署</small>
+            </footer>
+        </div>
     </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 
