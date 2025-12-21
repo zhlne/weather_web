@@ -66,6 +66,7 @@ def get_ai_prediction(county):
     except:
         return None
 
+# app.py 修正後的 index() 部分
 @app.route("/", methods=["GET"])
 def index():
     county = request.args.get("county")
@@ -73,37 +74,52 @@ def index():
 
     if county:
         try:
-            # 1. 抓取預報資料
             location_id = COUNTY_LOCATION_IDS[county]
             resp = requests.get(TOWN_FORECAST_URL, params={
                 "Authorization": API_KEY, "format": "JSON", "locationId": location_id
             })
             weather_json = resp.json()
-            
-            # 安全檢查：確保資料夾層級存在
-            records = weather_json.get('records', {})
-            locations = records.get('Locations', [{}])[0].get('Location', [])
-            
-            if not locations:
-                return f"❌ 找不到 {county} 的預報資料"
 
-            location_info = locations[0]
+            # --- 修正 1：相容大小寫欄位 ---
+            records = weather_json.get('records', {})
+            # 同時檢查大寫 Locations 與小寫 locations
+            locations_block = records.get('Locations') or records.get('locations')
+            if not locations_block:
+                return f"❌ 無法取得 {county} 的資料塊"
+                
+            location_list = locations_block[0].get('Location') or locations_block[0].get('location')
+            if not location_list:
+                return f"❌ 找不到 {county} 的鄉鎮資訊"
+            
+            location_info = location_list[0]
+
             elements = {}
             for elem in location_info.get('WeatherElement', []):
                 name = elem['ElementName']
-                if name in ("溫度", "3小時降雨機率", "相對濕度"):
+                # --- 修正 2：增加降雨機率名稱的相容性 ---
+                if name in ("溫度", "3小時降雨機率", "6小時降雨機率", "12小時降雨機率", "相對濕度"):
                     times = []
                     for t in elem['Time'][:6]:
                         dt_raw = t.get('DataTime') or t.get('StartTime')
-                        # 【修正】使用 float 處理可能的浮點數值
                         raw_val = list(t['ElementValue'][0].values())[0]
-                        val = float(raw_val) if raw_val and raw_val != "-" else 0.0
+                        
+                        # --- 修正 3：改用 float() 處理小數點，並過濾 "-" 或無效值 ---
+                        try:
+                            val = float(raw_val) if raw_val and raw_val != "-" else 0.0
+                        except ValueError:
+                            val = 0.0
+                            
                         times.append({"time": dt_raw, "value": val})
-                    elements[name] = times
+                    
+                    # 統一將降雨機率簡化 key，方便後續讀取
+                    if "降雨機率" in name:
+                        elements["降雨機率"] = times
+                    else:
+                        elements[name] = times
 
-            # 2. 轉換數值供建議邏輯使用
+            # 2. 取得建議與預測 (改用更安全的 get 讀取)
             temps = [e["value"] for e in elements.get("溫度", [])]
-            pops  = [e["value"] for e in elements.get("3小時降雨機率", [])]
+            pops  = [e["value"] for e in elements.get("降雨機率", [])]
             hums  = [e["value"] for e in elements.get("相對濕度", [])]
             
             data = {
@@ -113,9 +129,8 @@ def index():
                 "ai_temp": get_ai_prediction(county)
             }
         except Exception as e:
-            return f"Error: {e}"
+            return f"❌ 系統錯誤：{str(e)}"
 
-    # 記得回傳 selected_county 以供前端判斷
     return render_template("index.html", counties=COUNTY_LOCATION_IDS, selected_county=county, weather=data)
 
 if __name__ == "__main__":
