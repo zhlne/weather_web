@@ -1,18 +1,22 @@
 import os
-from dotenv import load_dotenv
-from flask import Flask, render_template, request
+import joblib
+import pandas as pd
 import requests
+from flask import Flask, render_template, request
 from datetime import datetime
-from suggestions import get_suggestions
+from dotenv import load_dotenv
+from suggestions import get_suggestions #
 
-# 載入 .env 檔案
 load_dotenv()
 
 app = Flask(__name__)
 
+# API 設定
 API_KEY = os.getenv("CWA_API_KEY")
 TOWN_FORECAST_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-093"
+OBSERVATION_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001"
 
+# 縣市代碼對照表
 COUNTY_LOCATION_IDS = {
     "新北市": "F-D0047-069",
     "臺北市": "F-D0047-061",
@@ -21,6 +25,47 @@ COUNTY_LOCATION_IDS = {
     "高雄市": "F-D0047-065"
 }
 
+# 測站 ID 對照表 (用於 AI 預測模型)
+COUNTY_STATION_IDS = {
+    "新北市": "466881",
+    "臺北市": "466920",
+    "桃園市": "467050",
+    "臺中市": "467490",
+    "高雄市": "467440"
+}
+
+# 載入預測模型
+try:
+    saved_data = joblib.load("weather_model.pkl")
+    predictor = saved_data["model"]
+    feature_cols = saved_data["common_cols"]
+except:
+    predictor = None
+
+def get_ai_prediction(county):
+    """抓取即時數據並預測下一小時氣溫"""
+    if not predictor or county not in COUNTY_STATION_IDS:
+        return None
+    try:
+        station_id = COUNTY_STATION_IDS[county]
+        resp = requests.get(OBSERVATION_URL, params={"Authorization": API_KEY, "StationId": station_id})
+        obs = resp.json()["records"]["Station"][0]
+        we = obs["WeatherElement"]
+        
+        # 建立特徵 DataFrame
+        features = pd.DataFrame([{
+            "AirPressure": float(we["AirPressure"]),
+            "AirTemperature": float(we["AirTemperature"]),
+            "RelativeHumidity": float(we["RelativeHumidity"]),
+            "WindSpeed": float(we["WindSpeed"]),
+            "Precipitation": float(we["Now"]["Precipitation"])
+        }])[feature_cols]
+        
+        pred = predictor.predict(features)[0]
+        return round(pred, 1)
+    except:
+        return None
+
 @app.route("/", methods=["GET"])
 def index():
     county = request.args.get("county")
@@ -28,65 +73,40 @@ def index():
 
     if county:
         try:
+            # 1. 抓取預報資料
             location_id = COUNTY_LOCATION_IDS[county]
             resp = requests.get(TOWN_FORECAST_URL, params={
-                "Authorization": API_KEY,
-                "format": "JSON",
-                "locationId": location_id
+                "Authorization": API_KEY, "format": "JSON", "locationId": location_id
             })
-            weather_data = resp.json()
-            print("=== API 回傳資料 ===")
-            print(weather_data)
-
-            all_locations = weather_data['records']['Locations'][0]['Location']
-            location_info = all_locations[0] if all_locations else None
-
-            if not location_info:
-                return f"❌ 找不到 {county} 對應的鄉鎮天氣資料"
+            weather_json = resp.json()
+            location_info = weather_json['records']['Locations'][0]['Location'][0]
 
             elements = {}
             for elem in location_info['WeatherElement']:
                 name = elem['ElementName']
-                if name not in ("溫度", "3小時降雨機率", "相對濕度"):
-                    continue
-                times = []
-                for t in elem['Time'][:6]:
-                    dt_raw = t.get('DataTime') or t.get('StartTime')
-                    if not dt_raw or not t['ElementValue']:
-                        continue
-                    try:
-                        dt_fmt = datetime.strptime(dt_raw, "%Y-%m-%dT%H:%M:%S%z")
-                        formatted = dt_fmt.strftime("%m-%d %H:%M")
-                    except:
-                        formatted = dt_raw
-                    value = list(t['ElementValue'][0].values())[0]
-                    times.append({"time": formatted, "value": value})
-                elements[name] = times
+                if name in ("溫度", "3小時降雨機率", "相對濕度"):
+                    times = []
+                    for t in elem['Time'][:6]:
+                        dt_raw = t.get('DataTime') or t.get('StartTime')
+                        val = list(t['ElementValue'][0].values())[0]
+                        times.append({"time": dt_raw, "value": val})
+                    elements[name] = times
 
+            # 2. 取得建議與預測
             temps = [int(e["value"]) for e in elements.get("溫度", [])]
             pops  = [int(e["value"]) for e in elements.get("3小時降雨機率", [])]
             hums  = [int(e["value"]) for e in elements.get("相對濕度", [])]
-            suggestions = get_suggestions(temps, pops, hums)
-
+            
             data = {
                 "locationName": location_info['LocationName'],
                 "elements": elements,
-                "suggestions": suggestions
+                "suggestions": get_suggestions(temps, pops, hums), #
+                "ai_temp": get_ai_prediction(county) #
             }
-
         except Exception as e:
-            return f"❌ 錯誤發生：{e}"
+            return f"Error: {e}"
 
-    return render_template(
-        "index.html",
-        counties=COUNTY_LOCATION_IDS,
-        selected_county=county,
-        weather=data
-    )
+    return render_template("index.html", counties=COUNTY_LOCATION_IDS, selected_county=county, weather=data)
 
 if __name__ == "__main__":
-    print("Flask App 啟動中...")
     app.run(debug=True)
-
-
-
