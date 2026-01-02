@@ -6,6 +6,9 @@ from flask import Flask, render_template, request
 from datetime import datetime
 from dotenv import load_dotenv
 from suggestions import get_suggestions #
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 load_dotenv()
 
@@ -46,7 +49,7 @@ def get_ai_prediction(county):
         return None
     try:
         station_id = COUNTY_STATION_IDS[county]
-        resp = requests.get(OBSERVATION_URL, params={"Authorization": API_KEY, "StationId": station_id})
+        resp = requests.get(OBSERVATION_URL, params={"Authorization": API_KEY, "StationId": station_id}, verify=False)
         obs = resp.json()["records"]["Station"][0]
         we = obs["WeatherElement"]
         
