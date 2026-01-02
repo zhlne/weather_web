@@ -1,0 +1,7 @@
+Flask
+pandas
+requests
+joblib
+python-dotenv
+gunicorn
+scikit-learn  # 這是 joblib 載入模型通常需要的

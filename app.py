@@ -132,4 +132,7 @@ def index():
     return render_template("index.html", counties=COUNTY_LOCATION_IDS, selected_county=county, weather=data)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # 從環境變數讀取 Port，預設為 5000
+    port = int(os.environ.get("PORT", 5000))
+    # 部署環境 debug 通常設為 False
+    app.run(host="0.0.0.0", port=port)
